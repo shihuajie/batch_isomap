@@ -1,0 +1,9 @@
+patchSize	8
+colorHist_3channels	0	16
+colortexton_regular	1	64
+colortexton_kmeans	0	64
+texton	1	64
+edge	0	16
+saliency	0	16
+EMD_type	1
+numBlocks	6

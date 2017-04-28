@@ -1,0 +1,91 @@
+function 
+im = imread('..\src.jpg');
+imshow(im);
+[src_rows src_cols] = size(im(:,:,1));
+
+opts.numBins_colortexton = 3;
+opts.numBins_texton = 27;
+opts.patchSize = 16;
+opts.windowSize = 3;
+
+%% 1. read/gen feature images
+
+texton = zeros(src_rows, src_cols); %genMR8Textons(im, 256);
+colortexton = zeros(src_rows, src_cols); %GenColorTexton(im, 3);
+
+dir_colortexton = '..\src_colortexton_regular.png';
+dir_texton = '..\src_texton.png';
+
+if(~exist(dir_colortexton, 'file'))
+    colortexton = GenColorTexton(im, opts.numBins_colortexton);
+    imwrite(colortexton, dir_colortexton);
+end
+
+if(~exist(dir_texton, 'file'))
+    texton = genMR8Textons(im, opts.numBins_texton);
+    imwrite(texton, dir_texton);
+end
+
+colortexton = imread(dir_colortexton);  
+texton = imread(dir_texton);
+
+
+%% 2. compute 3d color histogram & texton histogram for each patch/cell
+
+numPatch_row = floor(src_rows/opts.patchSize);
+numPatch_col = floor(src_cols/opts.patchSize);
+
+hist_color = histfeat_regularPatch(colortexton, opts.patchSize, opts.numBins_colortexton.^3, true);
+hist_texton = histfeat_regularPatch(texton, opts.patchSize, opts.numBins_texton, true);
+
+hist_color = reshape(hist_color, numPatch_row, numPatch_col, opts.numBins_colortexton.^3);
+hist_texton = reshape(hist_texton, numPatch_row, numPatch_col, opts.numBins_texton);
+
+
+%% 3. compute feature vectors for local windows - please compare to previous results here
+
+numWindow_row = numPatch_row - opts.windowSize + 1;
+numWindow_col = numPatch_col - opts.windowSize + 1;
+
+featVec_color = featureVec_localWindow(hist_color, opts.windowSize);
+featVec_texton = featureVec_localWindow(hist_texton, opts.windowSize);
+
+featVec_color = reshape(featVec_color, numWindow_row, numWindow_col, opts.numBins_colortexton.^3);
+featVec_texton = reshape(featVec_texton, numWindow_row, numWindow_col, opts.numBins_texton);
+
+featVec_color = reshape(permute(featVec_color,[2 1 3]), numWindow_row*numWindow_col, opts.numBins_colortexton.^3);
+featVec_texton = reshape(permute(featVec_texton,[2 1 3]), numWindow_row*numWindow_col, opts.numBins_texton);
+
+dlmwrite('..\featureVec_color.txt', featVec_color);
+dlmwrite('..\featureVec_texton.txt', featVec_texton);
+
+
+%% 4. compute distance matrix
+
+numBins = opts.numBins_texton;
+cost = zeros(numBins);
+for i = 1:numBins
+    for j = 1:numBins
+        cost(i,j) = abs(i-j);
+    end
+end
+
+numsamples = numWindow_row*numWindow_col;
+D = zeros(numsamples);
+for i=1:numsamples-1
+    for j=i+1:numsamples
+        d_color = emd_hat_gd_metric_mex(featVec_color(i,:)',featVec_color(j,:)', cost);
+        d_texton = emd_hat_gd_metric_mex(featVec_texton(i,:)', featVec_texton(j,:)', cost);
+        D(i, j) = d_color + d_texton;
+        D(j, i) = d_color + d_texton;
+    end
+end
+
+dlmwrite('..\distance_EMD1.dat', D);
+
+%% 5. Isomap embedding
+opts = 1:10;
+k = 7;
+outputname = '..\newCoord-7';
+[Y R E] = Isomap(D, 'k', k, opts, outputname);
+X = Y(:,1);
